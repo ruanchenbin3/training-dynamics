@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Edge of Stability — Cohen et al. 2021 解读</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+  body { font-family: 'Segoe UI', 'Noto Sans SC', sans-serif; max-width: 960px; margin: 0 auto; padding: 30px 24px; background: #fafafa; color: #222; line-height: 1.8; font-size: 15px; }
+  h1 { font-size: 26px; border-bottom: 2px solid #d73a49; padding-bottom: 8px; color: #6b1d22; }
+  h2 { font-size: 20px; color: #c0392b; margin-top: 36px; border-left: 4px solid #d73a49; padding-left: 12px; }
+  h3 { font-size: 17px; color: #444; margin-top: 28px; }
+  .fig-box { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 16px; margin: 16px 0; text-align: center; }
+  .fig-box img { max-width: 100%; border-radius: 6px; }
+  .fig-box .caption { font-size: 13px; color: #666; margin-top: 8px; }
+  .equation { background: #f0f4f8; padding: 14px 20px; border-radius: 8px; margin: 16px 0; overflow-x: auto; text-align: center; }
+  code { background: #e8eef5; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #c7254e; }
+  pre code { background: #1e2a3a; color: #e6e6e6; display: block; padding: 14px 18px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  .callout { border: 2px solid #d73a49; border-radius: 8px; padding: 14px 18px; margin: 16px 0; background: #fff0f0; }
+  .callout.blue { border-color: #2d6da8; background: #ebf5ff; }
+  .callout.green { border-color: #28a745; background: #f0faf0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  td, th { border: 1px solid #d0d7de; padding: 8px 12px; text-align: center; font-size: 14px; }
+  th { background: #f0f4f8; }
+  .toc { background: #f7f9fc; padding: 16px 20px; border-radius: 10px; margin: 20px 0; }
+  .toc ul { margin: 6px 0; padding-left: 20px; }
+  .toc li { margin: 4px 0; }
+  .toc a { color: #c0392b; text-decoration: none; }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  .ref { font-size: 13px; color: #888; }
+  .qa-block { background: #f7f9fc; border-radius: 10px; padding: 16px 20px; margin: 16px 0; }
+  .qa-q { font-weight: bold; color: #c0392b; }
+  .highlight { background: #fff3cd; padding: 1px 4px; border-radius: 3px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #c9d1d9; }
+    .fig-box { background: #161b22; border-color: #30363d; }
+    .equation { background: #161b22; }
+    .callout { background: #2d0d12; }
+    .callout.blue { background: #0d1a2b; border-color: #58a6ff; }
+    .callout.green { background: #0d1d0d; }
+    code { background: #1f2937; }
+    th { background: #161b22; }
+    td, th { border-color: #30363d; }
+    .toc { background: #161b22; }
+    .qa-block { background: #161b22; }
+    .highlight { background: #3d2d00; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Gradient Descent Typically Occurs at the Edge of Stability</h1>
+<p style="color:#888;font-size:14px;">Jeremy Cohen, Simran Kaur, Yuanzhi Li, J. Zico Kolter, Ameet Talwalkar · ICLR 2021</p>
+
+<div class="toc">
+<strong>目录</strong>
+<ul>
+  <li><a href="#sec1">1. 论文要回答什么问题</a></li>
+  <li><a href="#sec2">2. 背景：GD 在二次函数上的稳定性</a></li>
+  <li><a href="#sec3">3. 核心发现 1：Progressive Sharpening</a></li>
+  <li><a href="#sec4">4. 核心发现 2：Edge of Stability</a></li>
+  <li><a href="#sec5">5. Gradient Flow Trajectory</a></li>
+  <li><a href="#sec6">6. 与经典优化理论的矛盾</a></li>
+  <li><a href="#sec7">7. SGD 的情况</a></li>
+  <li><a href="#qa">8. Q&A 记录</a></li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec1">1. 论文要回答什么问题</h2>
+
+<p>
+之前 Li et al. (2018) 教会我们怎么"画"损失面，但有一个根本问题没解决：
+<strong>梯度下降在非凸损失面上到底是怎么收敛的？</strong>
+</p>
+
+<p>经典优化理论说：</p>
+<div class="equation">
+  $$ \text{如果 } \lambda_{\max}(\nabla^2 f) > \frac{2}{\eta} \text{，GD 必然发散} $$
+</div>
+
+<p>但神经网络训练时，Sharpness 几乎总是超过 $2/\eta$ ——按照经典理论，应该发散。但实际没有。</p>
+
+<div class="callout">
+<strong>核心问题：</strong> Sharpness 超过稳定性阈值后，GD 为什么不发散？它到底在干什么？
+</div>
+
+<p>这篇论文用 <strong>full-batch GD</strong>（不是 SGD，不是 mini-batch）系统性地回答了这个问题。</p>
+
+<!-- ============================================================ -->
+<h2 id="sec2">2. 背景：GD 在二次函数上的稳定性</h2>
+
+<div class="fig-box">
+  <img src="eos_fig_p3.jpg" alt="Figure 2" style="max-width:100%;">
+  <div class="caption"><strong>Figure 2:</strong> 二次函数上 GD 的稳定性边界。特征值 a₁=20, a₂=1。<br>
+  (a) η=0.09 → a₁ < 2/η → 收敛； (b) η=0.11 → a₁ > 2/η → 发散</div>
+</div>
+
+<p>
+考虑一个二次函数 $f(x) = \frac{1}{2}x^\top A x$，其中 $A$ 的特征值为 $\{a_i\}$。
+梯度下降 $x_{t+1} = x_t - \eta \nabla f(x_t)$ 转化为沿每个特征向量方向独立演化：
+</p>
+
+<div class="equation">
+  $$ \langle q_i, x_{t+1} \rangle = (1 - \eta a_i)\langle q_i, x_t \rangle $$
+</div>
+
+<p>如果 $a_i > 2/\eta$，则 $|1 - \eta a_i| > 1$，该方向指数发散。
+因此 <strong>$2/\eta$ 是 GD 的"稳定性天花板"</strong>——任何方向的特征值超过它就崩。</p>
+
+<div class="callout blue">
+<strong>MSS (Maximum Stable Sharpness)：</strong>
+<table>
+  <tr><th>优化器</th><th>MSS 公式</th></tr>
+  <tr><td>Vanilla GD</td><td>$2/\eta$</td></tr>
+  <tr><td>Polyak 动量 $(\beta)$</td><td>$(2 + 2\beta)/\eta$</td></tr>
+  <tr><td>Nesterov 动量 $(\beta)$</td><td>$\frac{2 + 2\beta}{1 + \beta} \cdot \frac{1}{\eta}$</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec3">3. 核心发现 1：Progressive Sharpening</h2>
+
+<div class="fig-box">
+  <img src="eos_fig_p4.jpg" alt="Figure 3" style="max-width:100%;">
+  <div class="caption"><strong>Figure 3:</strong> Sharpness 持续上升直到撞上 $2/\eta$ 天花板。
+  (a) MSE loss; (b) Cross-entropy loss（末端下降是 cross-entropy 的特性，见附录 C）</div>
+</div>
+
+<h3>定义</h3>
+<p>
+<strong>Progressive Sharpening（渐进锐化）：</strong> 只要 sharpness 低于 $2/\eta$，
+GD 就有一种<strong>压倒性的趋势</strong>持续增加 sharpness，直到达到 $2/\eta$。
+</p>
+
+<div class="callout blue">
+论文原文说：<br>
+<em>"It seems to be a general rule that so long as the sharpness is small enough for gradient descent to be stable, gradient descent has an overwhelming tendency to continually increase the sharpness."</em>
+</div>
+
+<h3>为什么这个发现重要</h3>
+<p>
+在 Li et al. 的论文里，我们知道了 sharp minimizer 泛化差。
+但当时不知道 <strong>sharpness 在训练过程中是如何演化的</strong>。
+Progressive Sharpening 告诉我们：sharpness 不是偶然出现的，而是 GD 的<strong>内在属性</strong>——它必然把参数推向更 sharp 的区域，直到撞墙。
+</p>
+
+<h3>Cross-entropy 的特殊情况</h3>
+<p>
+Cross-entropy loss 训练末期 sharpness 会下降（Figure 3b 末端），原因是：
+分类器 margin 变大时 cross-entropy 的二阶导数（Gauss-Newton 项）变小。
+但这不是"sharpness 被控制"的证据——只是 loss 函数本身的特性。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="sec4">4. 核心发现 2：Edge of Stability</h2>
+
+<div class="fig-box">
+  <img src="eos_fig_p5.jpg" alt="Figure 4" style="max-width:100%;">
+  <div class="caption"><strong>Figure 4:</strong> Sharpness 越过 $2/\eta$ 后发生了什么。<br>
+  (a) 训练中 sharpness 达到 $2/\eta$； (b) 开始沿 q₁ 振荡，幅度指数增长；<br>
+  (c) 但没有发散，loss 非单调但持续下降</div>
+</div>
+
+<h3>越过阈值后发生了什么</h3>
+
+<p>Figure 4(b)：Sharpness 第一次越过 $2/\eta$ 后，参数沿 Hessian 最大特征向量 q₁ 方向开始振荡，幅度指数增长。跟 Figure 2(b) 中二次函数发散的模式一模一样。</p>
+
+<div class="callout">
+<strong>按照经典理论 → 应该指数发散 → 训练崩溃</strong>
+</div>
+
+<p>
+Figure 4(c)：但实际上 GD <strong>没有崩溃</strong>。振荡幅度增长到一定程度后停了，loss 开始非单调地继续下降。
+</p>
+
+<h3>Edge of Stability 的定义</h3>
+
+<p>Sharpness 越过 $2/\eta$ 后，GD 进入一个全新的 regime：</p>
+
+<ol>
+  <li><strong>Sharpness 停在 $2/\eta$ 附近</strong>（刚超过一点点），不再继续上升</li>
+  <li><strong>Loss 短时间尺度上振荡</strong>（每一步不是都在下降）</li>
+  <li><strong>Loss 长时间尺度上持续下降</strong>（整体趋势向下）</li>
+</ol>
+
+<div class="fig-box">
+  <img src="eos_fig_p7.jpg" alt="Figure 5" style="max-width:100%;">
+  <div class="caption"><strong>Figure 5:</strong> 不同学习率下 Sharpness 的演化。<br>
+  左图：按 iteration 看，不同 η 的 sharpness 轨迹截然不同。<br>
+  右图：按"时间 = iteration × η"看，轨迹重合——都沿 GD flow 路径走，直到抵达 $2/\eta$ 线。</div>
+</div>
+
+<h3>自我稳定机制</h3>
+
+<p>
+Edge of Stability 有一个<strong>自我稳定（self-stabilization）</strong>机制：
+</p>
+
+<div class="equation">
+  $$ \lambda_{\max} \to \frac{2}{\eta}^+ $$
+</div>
+
+<p>
+Sharpness 不断"试图"超过 $2/\eta$，但超过后立刻引发沿 q₁ 方向的振荡，
+这些振荡在 loss 中创造"阻力"，把 sharpness 拉回来。
+最终 sharpness 稳定在刚超过 $2/\eta$ 一点的位置。
+</p>
+
+<div class="callout green">
+<strong>比喻：</strong> 这个人（GD）站在悬崖（$2/\eta$）边上，不断往前试探，
+脚一滑就往后缩一下，但整体还是在往前走。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec5">5. Gradient Flow Trajectory</h2>
+
+<p>
+论文有一个关键的额外发现：不同学习率下，GD 沿着<strong>同一条路径</strong>走，只是速度快慢不同。
+</p>
+
+<p>Figure 5 右图展示了：把横轴从 "iteration" 换成 "时间 = iteration × η" 后，不同 η 的 sharpness 曲线完全重合，直到各自抵达 $2/\eta$ 线。</p>
+
+<div class="equation">
+  $$ \theta(t) \approx \theta_{\text{GF}}(t) \quad\text{其中 } t = k\eta $$
+</div>
+
+<p>
+换句话说，<strong>梯度下降最初的路径由 gradient flow（连续时间 ODE）决定</strong>，$\eta$ 只影响走多快。
+当 sharpness 撞到 $2/\eta$ 天花板后，GD 才偏离 GF 路径，进入 Edge of Stability。
+</p>
+
+<div class="callout blue">
+<strong>意义：</strong> 只要 $\eta$ 不是太大，GD 和 GF 在前期几乎一样。
+这说明 Edge of Stability 是离散化带来的现象——连续时间的 GD flow 没有这个天花板。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec6">6. 与经典优化理论的矛盾</h2>
+
+<p>Section 5 列举了 Edge of Stability 与哪些经典理论不符：</p>
+
+<h3>矛盾 1：L-smoothness 假设不成立</h3>
+<p>
+经典收敛分析假设 sharpness 有全局上界（L-smoothness），保证每一步都下降。
+但 Edge of Stability 中 sharpness 停在 $2/\eta$，没有上界——每一步都不保证下降。
+</p>
+
+<div class="equation">
+  $$ \mathcal{L}(\theta_{t+1}) \leq \mathcal{L}(\theta_t) \quad \text{（经典理论保证单调下降）} $$
+  $$ \mathcal{L}(\theta_{t+1}) \not\leq \mathcal{L}(\theta_t) \quad \text{（EoS 中不成立）} $$
+</div>
+
+<h3>矛盾 2：二次泰勒展开不能描述局部行为</h3>
+<p>
+经典优化用二次函数局部近似分析 GD。但 Edge of Stability 中，
+sharpness = $2/\eta$ 正好是二次近似的发散边界——二次近似预测 GD 发散，
+但实际没有。说明<strong>神经网络的损失面局部不能用二次函数近似</strong>。
+</p>
+
+<h3>矛盾 3：学习率选择启发式失效</h3>
+<p>
+经典"最大学习率 = 某个 bound"的启发式在 EoS 中不适用。
+GD 在 sharpness 超过阈值后仍然能优化，只是不单调而已。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="sec7">7. SGD 的情况</h2>
+
+<p>
+这篇论文主要研究 full-batch GD。SGD 的行为不同：
+</p>
+
+<ul>
+  <li><strong>Sharpness 不固定在 $2/\eta$</strong>：噪声让 SGD 能找到更 flat 的区域</li>
+  <li><strong>大学习率 + 小 batch → 更 flat</strong>：验证了 Li et al. 的结论</li>
+  <li><strong>附录 G/H</strong> 展示了 SGD 中 sharpness 的演化</li>
+</ul>
+
+<div class="callout green">
+<strong>联系 Li et al.:</strong> 小 batch 找到 flat minimizer 的机制，可以从 Edge of Stability 理解——<br>
+SGD 的噪声让参数在 $2/\eta$ 附近振荡，振荡倾向于把参数推向更宽（flat）的谷底。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="qa">8. Q&A 记录</h2>
+
+<div class="qa-block">
+<p class="qa-q">Q1: Edge of Stability 和 Li et al. 的 Loss Landscape 什么关系？</p>
+<p>
+Li et al. 回答了"损失面长什么样"（静态几何），Cohen et al. 回答了"GD 在损失面上怎么走"（动态演化）。
+两者互补：
+</p>
+<ul>
+  <li>Li et al.: 跳过连接让损失面变光滑，小 batch 找到 flat minimizer</li>
+  <li>Cohen et al.: 不管损失面长什么样，GD 都会把 sharpness 推高到 $2/\eta$，然后在边缘振荡下降</li>
+</ul>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q2: "Sharpness" 具体怎么量？</p>
+<p>
+Sharpness = $\lambda_{\max}$，即 Hessian $\nabla^2 \mathcal{L}(\theta)$ 的<strong>最大特征值</strong>。
+它度量了损失面在"最陡方向"的曲率——越大表示该方向越 sharp。
+</p>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q3: 为什么这对调学习率有指导意义？</p>
+<p>
+Edge of Stability 给出了<strong>最佳学习率的直观</strong>：
+学习率越大，$2/\eta$ 线越低 → sharpness 更快撞墙 → 更早进入 EoS 振荡下降模式。
+</p>
+<p>
+但也不能太大，否则振荡幅度过大导致 loss 无法下降。
+实际的最佳 $\eta$ 就是刚好让 sharpness <strong>稳定在 $2/\eta$ 略高处</strong>——最大幅度利用稳定性边界。
+</p>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q4: Progressive Sharpening 为什么会发生？</p>
+<p>
+论文没有完全解释原因，但指出这似乎是 GD 的固有属性。
+Jastrzębski et al. (2020) 提出了一个猜想：GD 倾向于把参数推向大曲率区域，
+因为这些区域通常是 loss 更低的"谷底"。
+具体机制仍然是开放问题。
+</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 style="margin-top:40px;">论文信息</h2>
+
+<table>
+  <tr><th>项目</th><th>内容</th></tr>
+  <tr><td>标题</td><td>Gradient Descent on Neural Networks Typically Occurs at the Edge of Stability</td></tr>
+  <tr><td>作者</td><td>Jeremy Cohen, Simran Kaur, Yuanzhi Li, J. Zico Kolter, Ameet Talwalkar</td></tr>
+  <tr><td>发表</td><td>ICLR 2021</td></tr>
+  <tr><td>PDF</td><td><code>papers/Cohen_EdgeOfStability_2021_2103.00065.pdf</code></td></tr>
+  <tr><td>代码</td><td>https://github.com/jeremy-cohen/edge-of-stability</td></tr>
+</table>
+
+<hr style="margin-top:40px;">
+<p class="ref">* 本笔记使用 KaTeX 渲染 LaTeX 公式，需要浏览器加载 katex.min.js CDN</p>
+
+<script>
+  renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$', right: '$', display: false}
+    ]
+  });
+</script>
+
+</body>
+</html>
