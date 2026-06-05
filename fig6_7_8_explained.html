@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Li et al. 2018 — Figure 6, 7, 8 解读</title>
+<style>
+  body { font-family: 'Segoe UI', 'Noto Sans SC', sans-serif; max-width: 960px; margin: 0 auto; padding: 30px 24px; background: #fafafa; color: #222; line-height: 1.8; font-size: 15px; }
+  h1 { font-size: 24px; border-bottom: 2px solid #2d6da8; padding-bottom: 8px; color: #1a365d; }
+  h2 { font-size: 20px; color: #2d6da8; margin-top: 32px; border-left: 4px solid #2d6da8; padding-left: 12px; }
+  h3 { font-size: 17px; color: #444; margin-top: 24px; }
+  .fig-box { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 16px; margin: 16px 0; text-align: center; }
+  .fig-box img { max-width: 100%; border-radius: 6px; }
+  .fig-box .caption { font-size: 13px; color: #666; margin-top: 8px; }
+  .annotation { background: #ebf5ff; border-left: 4px solid #2d6da8; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 14px; }
+  .annotation.warn { background: #fff8e6; border-left-color: #e6a700; }
+  .annotation.good { background: #f0faf0; border-left-color: #28a745; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  td, th { border: 1px solid #d0d7de; padding: 8px 12px; text-align: center; font-size: 14px; }
+  th { background: #f0f4f8; }
+  code { background: #e8eef5; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  .key-insight { border: 2px solid #2d6da8; border-radius: 10px; padding: 14px 18px; margin: 16px 0; background: #f0f6ff; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #c9d1d9; }
+    .fig-box { background: #161b22; border-color: #30363d; }
+    .annotation { background: #0d1a2b; }
+    .annotation.warn { background: #1d1a0d; }
+    .annotation.good { background: #0d1d0d; }
+    th { background: #161b22; }
+    td, th { border-color: #30363d; }
+    .key-insight { background: #0d1a2b; border-color: #58a6ff; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Figure 6 · 7 · 8 详解</h1>
+<p style="color:#888;">Li et al., Visualizing the Loss Landscape of Neural Nets, NIPS 2018</p>
+
+<!-- ============================================================ -->
+<h2>Figure 6 — 宽度的影响</h2>
+
+<div class="fig-box">
+  <img src="fig6.jpg" alt="Figure 6" style="max-width:100%;">
+  <div class="caption"><strong>Figure 6:</strong> Wide-ResNet-56，有/无跳过连接，不同宽度 k=1,2,4,8</div>
+</div>
+
+<h3>这张图在做什么</h3>
+<p>
+把 ResNet-56 的 filter 数量翻倍（k=1,2,4,8），比较有/无跳过连接时的损失面。
+k=2 表示每层 filter 数量是基准的 2 倍。
+</p>
+
+<h3>怎么读</h3>
+<p>6 行 × 4 列 = 24 张子图，布局如下：</p>
+
+<table>
+  <tr><th></th><th>k=1（窄）</th><th>k=2</th><th>k=4</th><th>k=8（宽）</th></tr>
+  <tr>
+    <td><strong>有跳过连接</strong>（上3行）</td>
+    <td style="color:#28a745;">光滑</td>
+    <td style="color:#28a745;">光滑</td>
+    <td style="color:#28a745;">光滑</td>
+    <td style="color:#28a745;">光滑</td>
+  </tr>
+  <tr>
+    <td><strong>无跳过连接</strong>（下3行）</td>
+    <td style="color:#d73a49;">混沌</td>
+    <td style="color:#e6a700;">部分混沌</td>
+    <td style="color:#e6a700;">部分混沌</td>
+    <td style="color:#28a745;">光滑</td>
+  </tr>
+</table>
+
+<h3>关键结论</h3>
+<ul>
+  <li><strong>有跳过连接：</strong> 无论多宽，损失面永远光滑</li>
+  <li><strong>无跳过连接 + 窄（k=1）：</strong> 混沌，泛化最差（测试误差 11.92%）</li>
+  <li><strong>无跳过连接 + 宽（k=8）：</strong> 变光滑了！测试误差降到 5.04%</li>
+</ul>
+
+<div class="annotation good">
+<strong>重要发现：宽度可以部分弥补跳过连接的缺失。</strong>
+宽网络有更多参数，提供了冗余的优化路径，即使没有跳过连接，
+宽的 Plain Net 也能找到相对光滑的极小值。
+但和 ResNet + 宽的组合（4.58%）比还是略差。
+</div>
+
+<h3>对你 T1 mapping 的意义</h3>
+<p>你的 U-Net 天然有跳过连接 + 跳跃连接，如果你发现训练不稳定：</p>
+<ul>
+  <li>先检查是否有跳过连接（U-Net 默认有，但你改结构时可能删了）</li>
+  <li>如果加深后训练崩了，<strong>加宽比加深更安全</strong>（宽网络损失面更光滑）</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>Figure 7 — Hessian 热力图</h2>
+
+<div class="fig-box">
+  <img src="fig7.jpg" alt="Figure 7" style="max-width:100%;">
+  <div class="caption"><strong>Figure 7:</strong> 损失面上每一点的 Hessian 特征值比率热力图</div>
+</div>
+
+<h3>背景知识</h3>
+<p>
+Hessian 矩阵 $H = \nabla^2 \mathcal{L}(\theta)$ 描述了损失面的<strong>局部曲率</strong>：
+</p>
+<ul>
+  <li><strong>$\lambda_{\max}$（最大特征值）</strong>：最陡方向的曲率 → 越大越 sharp</li>
+  <li><strong>$\lambda_{\min}$（最小特征值）</strong>：如果是负数（$<0$），表示该方向 <strong>向下弯曲</strong> → 非凸</li>
+</ul>
+
+<h3>怎么读这张图</h3>
+<p>
+每一对子图展示一个网络，左边是 <strong>1D 损失曲线</strong>，右边是对应的 <strong>$\frac{|\lambda_{\min}|}{\lambda_{\max}}$ 热力图</strong>。
+</p>
+
+<div class="annotation">
+<strong>热力图颜色含义：</strong><br>
+<span style="color:#0000ff;">蓝色</span> = $|\lambda_{\min}|/\lambda_{\max}$ 接近 0 → 损失面接近凸（几乎没有向下弯曲的方向）<br>
+<span style="color:#ff0000;">红色</span> = 比率大 → 非凸性强（有很多向下弯曲的"沟壑"）<br><br>
+<strong>直觉：</strong> 蓝色区域 = "好"的几何（局部像碗），红色区域 = "坏"的几何（局部像马鞍面）
+</div>
+
+<h3>关键观察</h3>
+<table>
+  <tr><th>网络</th><th>损失面</th><th>Hessian 热力图</th></tr>
+  <tr>
+    <td>ResNet-20（有跳过连接）</td>
+    <td>光滑平坦</td>
+    <td><span style="color:#0000ff;">大部分蓝色</span>（几乎处处凸）</td>
+  </tr>
+  <tr>
+    <td>ResNet-56-noshort（无跳过连接）</td>
+    <td>崎岖混沌</td>
+    <td><span style="color:#ff0000;">大片红色</span>（大量负曲率区域）</td>
+  </tr>
+  <tr>
+    <td>DenseNet</td>
+    <td>光滑</td>
+    <td><span style="color:#0000ff;">蓝色为主</span></td>
+  </tr>
+</table>
+
+<div class="key-insight">
+<strong>核心结论：</strong> 跳过连接不仅让损失面光滑，而且从根本上改变了损失面的<strong>曲率结构</strong>——它消除了负曲率（鞍点、沟壑），让损失面在局部处处像凸函数。
+这解释了为什么跳过连接能让训练变得如此稳定。
+</div>
+
+<!-- ============================================================ -->
+<h2>Figure 8 — 为什么之前的轨迹可视化是错的</h2>
+
+<div class="fig-box">
+  <img src="fig8.jpg" alt="Figure 8" style="max-width:100%;">
+  <div class="caption"><strong>Figure 8:</strong> 三种错误的优化轨迹可视化方法</div>
+</div>
+
+<h3>这张图在批评什么</h3>
+<p>
+在 Li et al. 之前，很多人用类似方法画 SGD 轨迹——但都是错的。
+Figure 8 展示了三种经典错误：
+</p>
+
+<h3>(a) 两个随机方向投影 → 什么都看不到</h3>
+<p>
+把训练过程中每一步的参数 $\theta_t$ 投影到两个随机方向 $\delta, \eta$ 上画轨迹。
+</p>
+<div class="annotation warn">
+<strong>问题：</strong> 高维空间（百万维）中，两个随机方向几乎正交。SGD 走了几万步，但在随机平面上的投影只是一团混乱的点——<strong>看不出任何结构</strong>。
+这就像一个三维空间中的直线运动，投影到任意两个随机方向后变成了一团乱麻。
+</div>
+
+<h3>(b) 起点→终点的随机方向投影 → 看起来像直线</h3>
+<p>
+取「初始化 $\theta_0$ → 最终解 $\theta^*$」的方向作为 $\delta$，另一个随机方向作为 $\eta$。
+</p>
+<div class="annotation warn">
+<strong>问题：</strong> 这个方向记录了总位移，但 SGD 的轨迹可能来回振荡很多次。<strong>看起来像直线实际上是因为随机方向 $\eta$ 和轨迹几乎正交</strong>，看不到任何振荡信息。
+</div>
+
+<h3>(c) 两个 PCA 方向 → 只能看一条线</h3>
+<p>
+用 PCA 降维到前两个主成分。
+</p>
+<div class="annotation warn">
+<strong>问题：</strong> PCA 方向确实捕捉了大部分方差，但这只适用于<strong>单次</strong>轨迹。
+要在不同训练条件下做有意义比较，PCA 方向不通用。
+</div>
+
+<h3>为什么都错了——根本原因</h3>
+
+<div class="key-insight">
+<strong>SGD 轨迹的有效维度极低。</strong><br><br>
+虽然参数空间是百万维，但 SGD 的实际运动只用了大约 <strong>5 个有效维度</strong>。
+这意味着在百万维空间中，随机选一个方向，几乎必然和轨迹正交——<strong>什么都看不到</strong>。<br><br>
+用 Li et al. 的话："The orthogonality of random directions in high dimensions means almost all random projections appear 'flat,' and don't reveal the true geometry of the trajectory."
+</div>
+
+<h3>论文的解决方案：PCA 方向（Figure 9）</h3>
+<p>
+用训练过程中参数变化的 PCA 主成分方向来投影，才能看到真实轨迹形状。
+Figure 9 展示了正确的画法——可以看到 SGD 收敛到吸引子、在极小值周围振荡等结构。
+</p>
+
+<!-- ============================================================ -->
+<h2>三张图的关系</h2>
+
+<div style="background:#f0f4f8; border-radius:10px; padding:16px 20px; margin:16px 0;">
+<ol>
+  <li><strong>Figure 6</strong>（宽度实验）→ 跳过连接 + 宽度都能让损失面变光滑。<br>
+      回答了"什么架构好"</li>
+  <li><strong>Figure 7</strong>（Hessian 热力图）→ 好的架构（跳过连接）消除了负曲率，从根本上改变了损失面的几何结构。<br>
+      回答了"为什么好"</li>
+  <li><strong>Figure 8</strong>（错误轨迹可视化）→ 高维空间下随机投影什么都看不到。<br>
+      回答了"为什么之前的研究没画对"——也为论文自己的方法（filter normalization + PCA 方向）做了铺垫</li>
+</ol>
+</div>
+
+</body>
+</html>
