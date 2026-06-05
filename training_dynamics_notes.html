@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>训练动力学笔记 — Li et al. Loss Landscape</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+  body { font-family: 'Segoe UI', 'Noto Sans SC', sans-serif; max-width: 860px; margin: 0 auto; padding: 30px 24px; background: #fafafa; color: #222; line-height: 1.8; font-size: 15px; }
+  h1 { font-size: 26px; border-bottom: 2px solid #2d6da8; padding-bottom: 8px; color: #1a365d; }
+  h2 { font-size: 20px; color: #2d6da8; margin-top: 36px; border-left: 4px solid #2d6da8; padding-left: 12px; }
+  h3 { font-size: 17px; color: #444; margin-top: 28px; }
+  .equation { background: #f0f4f8; padding: 14px 20px; border-radius: 8px; margin: 16px 0; overflow-x: auto; text-align: center; }
+  .equation .katex { font-size: 1.1em; }
+  code { background: #e8eef5; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #c7254e; }
+  pre code { background: #1e2a3a; color: #e6e6e6; display: block; padding: 14px 18px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  .highlight-box { background: #ebf5ff; border-left: 4px solid #2d6da8; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+  .warning-box { background: #fff8e6; border-left: 4px solid #e6a700; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+  .fig-placeholder { background: #1a1a2e; border-radius: 10px; padding: 16px; text-align: center; margin: 16px 0; color: #aaa; font-size: 13px; }
+  .fig-placeholder canvas, .fig-placeholder img { max-width: 100%; border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 12px; text-align: left; font-size: 14px; }
+  th { background: #f0f4f8; font-weight: 600; }
+  .ref { font-size: 13px; color: #666; padding: 4px 0; }
+  .ref a { color: #2d6da8; }
+  .toc { background: #f7f9fc; padding: 16px 20px; border-radius: 10px; margin: 20px 0; }
+  .toc a { color: #2d6da8; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ul { margin: 6px 0; padding-left: 20px; }
+  .toc li { margin: 4px 0; }
+  .note { background: #f0faf0; border-left: 4px solid #28a745; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 14px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #c9d1d9; }
+    h1 { color: #58a6ff; border-bottom-color: #58a6ff; }
+    h2 { color: #58a6ff; border-left-color: #58a6ff; }
+    code { background: #1f2937; color: #f97583; }
+    .equation { background: #161b22; }
+    .highlight-box { background: #0d1a2b; border-left-color: #58a6ff; }
+    .warning-box { background: #1d1a0d; border-left-color: #d29922; }
+    th { background: #161b22; }
+    td, th { border-color: #30363d; }
+    .toc { background: #161b22; }
+    pre code { background: #0d1117; border: 1px solid #30363d; }
+    .note { background: #0d1d0d; border-left-color: #28a745; }
+  }
+</style>
+</head>
+<body>
+
+<h1>训练动力学：Visualizing the Loss Landscape of Neural Nets</h1>
+<p style="color:#888;font-size:14px;">Li Hao et al., NIPS 2018 · 论文解读笔记 · 2026-06-05</p>
+
+<div class="toc">
+<strong>目录</strong>
+<ul>
+  <li><a href="#sec1">1. 动机：三个矛盾</a></li>
+  <li><a href="#sec2">2. 问题：无法比较的损失面</a></li>
+  <li><a href="#sec3">3. 解决方案：Filter Normalization</a></li>
+  <li><a href="#sec4">4. 核心发现</a></li>
+  <li><a href="#sec5">5. 对实践的启示</a></li>
+  <li><a href="#sec6">6. 阅读路线</a></li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec1">1. 动机：三个矛盾</h2>
+
+<h3>矛盾 1：理论说不可能，实际上很好训</h3>
+<p>
+理论上神经网络损失面是高维非凸的，应该有无数鞍点和糟糕的局部极小值，
+SGD 不应该收敛。但实践中每次 SGD 都收敛到零训练损失，而且泛化得很好。
+</p>
+
+<div class="equation">
+  $$ \min_{\theta} \mathcal{L}(\theta) = \frac{1}{m}\sum_{i=1}^m \ell(f(x_i; \theta), y_i) $$
+</div>
+
+<h3>矛盾 2：Sharp vs Flat 极小值之争</h3>
+<p>
+小 batch SGD 找到 flat 极小值（泛化好），大 batch 找到 sharp 极小值（泛化差），
+这是 Keskar et al. 2017 的结论。但 Dinh et al. 2017 指出测量的 sharpness 受尺度不变性影响，
+可能是假象。
+</p>
+
+<h3>矛盾 3：跳过连接为什么有效</h3>
+<p>
+ResNet 能训到 1000+ 层，普通 CNN 20 层就开始崩。
+简单的"梯度更好传"解释不够——它对损失面的几何做了什么？
+</p>
+
+<!-- ============================================================ -->
+<h2 id="sec2">2. 问题：无法比较的损失面</h2>
+
+<p>
+神经网络的参数空间是百万维的，可视化必须降到 2D：
+</p>
+
+<div class="equation">
+  $$ f(\alpha, \beta) = \mathcal{L}(\theta^* + \alpha \delta + \beta \eta) $$
+</div>
+
+<p>
+其中 $\delta, \eta$ 是两个随机方向向量。
+</p>
+
+<h3>尺度不变性破坏了一切</h3>
+
+<p>
+由于 ReLU + Batch Normalization，网络有 <strong>尺度不变性</strong>
+（scale invariance）：</p>
+
+<div class="equation">
+  $$ f(x; \theta) = f(x; \lambda \theta) \quad \text{(ReLU + BN)} $$
+</div>
+
+<p>
+即两个参数大小差 10 倍的网络可能是数学等价的。
+但画损失面时，一个固定的随机扰动 $\delta$ 对大权重网络影响小（看起来"平滑"），
+对小权重网络影响大（看起来"尖锐"）——这完全是测量假象。
+</p>
+
+<div class="warning-box">
+<strong>Dinh et al. 的论点：</strong> 你看到的 sharp/flat 差异可能只是尺度不变性的产物。
+没有适当的归一化，任何 sharpness 比较都是不可靠的。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec3">3. 解决方案：Filter Normalization</h2>
+
+<p>
+核心思想：把随机扰动方向 $\delta$ 缩放到和网络权重 $\theta$ <strong>同尺度</strong>。
+</p>
+
+<h3>数学定义</h3>
+
+<p>
+令 $\theta$ 为网络参数，$\delta$ 为随机高斯方向向量。
+对第 $i$ 层的第 $j$ 个 filter：</p>
+
+<div class="equation">
+  $$ \delta_{i,j} \leftarrow \delta_{i,j} \cdot \frac{\|\theta_{i,j}\|}{\|\delta_{i,j}\|} $$
+</div>
+
+<p>其中 $\|\cdot\|$ 是 Frobenius 范数：</p>
+
+<div class="equation">
+  $$ \|W\|_F = \sqrt{\sum_{i=1}^m \sum_{j=1}^n w_{ij}^2} $$
+</div>
+
+<h3>为什么是 filter-wise 而不是 layer-wise</h3>
+
+<p>
+同一层内不同 filter 的大小可能不同（边缘检测 filter 和纹理检测 filter 的参数幅度不同），
+layer-wise 归一化会抹平这种差异。Filter-wise 归一化尊重每个 filter 的内部结构：
+</p>
+
+<table>
+  <tr><th>归一化方式</th><th>做法</th><th>问题</th></tr>
+  <tr><td>无归一化</td><td>$\delta$ 直接用高斯随机</td><td>尺度不同，不可比</td></tr>
+  <tr><td>Layer-wise</td><td>整层用同一个缩放因子</td><td>层内 filter 差异被抹平</td></tr>
+  <tr><td><strong>Filter-wise ✓</strong></td><td>每个 filter 独立缩放</td><td>正确保留内部结构</td></tr>
+</table>
+
+<h3>适用于所有层</h3>
+
+<p>
+卷积层：filter = 卷积核。<br>
+全连接层：等价于 $1 \times 1$ 卷积，每个神经元对应一个 filter。
+</p>
+
+<h3>验证</h3>
+
+<div class="highlight-box">
+<strong>关键结果：</strong> 使用 filter normalization 后，sharpness 与泛化误差强相关
+（$R^2 > 0.9$）。不归一化则是噪声，甚至可能负相关。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec4">4. 核心发现</h2>
+
+<h3>发现 1：跳过连接抑制混沌相变</h3>
+
+<div class="fig-placeholder">
+  <img src="https://raw.githubusercontent.com/ruanchenbin3/training-dynamics/main/loss_landscape_viz.html" 
+       onerror="this.style.display='none'"
+       style="max-width:100%; border-radius:6px;">
+  <div style="padding:8px;">
+    <strong>Figure 1</strong> (Li et al., Fig 1 的复现)：
+    左侧 Plain Net（无跳过连接）损失面混沌；右侧 ResNet（有跳过连接）光滑
+  </div>
+</div>
+
+<p>
+当网络深度超过某个阈值时，Plain Net 的损失面从"近似凸"突然转变为"混沌"
+（chaotic），伴随测试精度骤降，最终无法训练。跳过连接抑制了这个相变：
+</p>
+
+<div class="equation">
+  $$ \text{Plain Net: } \quad \text{depth} > 20 \implies \text{chaotic} $$
+  $$ \text{ResNet: } \quad \text{depth} < 1000 \implies \text{smooth} $$
+</div>
+
+<h3>发现 2：Sharp 极小值泛化更差（用正确方法测量后）</h3>
+
+<p>
+使用 filter normalization 后，sharpness 与泛化误差正相关：</p>
+
+<div class="equation">
+  $$ \text{test error} \propto \lambda_{\max}(\nabla^2 \mathcal{L}(\theta^*)) $$
+</div>
+
+<p>其中 $\lambda_{\max}$ 是 Hessian 的最大特征值。
+
+Hessian 的负特征值（损失面中的"沟壑"）数量也与泛化误差正相关。</p>
+
+<h3>发现 3：SGD 轨迹在低维空间</h3>
+
+<p>
+虽然参数空间是百万维，SGD 的实际轨迹只用了约 5 个有效维度。
+这解释了为什么 2D 投影能捕捉到真实结构——SGD 本质上在低维子空间里游走。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="sec5">5. 对实践的启示</h2>
+
+<table>
+  <tr><th>场景</th><th>启示</th></tr>
+  <tr><td>设计生成模型（U-Net）</td><td>跳过连接不只是梯度通道——它让损失面几何更友好</td></tr>
+  <tr><td>比较不同训练方法</td><td>用 filter normalization 画 loss landscape，客观比较</td></tr>
+  <tr><td>泛化差</td><td>量 Hessian 最大特征值，sharp 则考虑 SWA 平滑</td></tr>
+  <tr><td>深层网络训不动</td><td>检查是否出现了 chaotic transition，加跳过连接</td></tr>
+  <tr><td>多 loss 加权</td><td>可视化每个 loss 的梯度方向一致性，确认是否冲突</td></tr>
+</table>
+
+<div class="note">
+<strong>关于你的 T1 mapping 项目：</strong>
+你的多输入 U-Net（5 contrast → T1 map）天然享受了跳过连接带来的光滑损失面。
+如果后续加深网络或加对抗 loss 后训练不稳定，可以考虑检查 loss landscape 是否出现了混沌。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec6">6. 阅读路线</h2>
+
+<ol>
+  <li><strong>本篇</strong> — Li et al. Visualizing Loss Landscape (2018) ✅ 已完成</li>
+  <li><strong>Cohen et al.</strong> — Edge of Stability (2021) 训练动力学里程碑</li>
+  <li><strong>Jacot et al.</strong> — Neural Tangent Kernel (2018) 理论基准</li>
+  <li><strong>Power et al.</strong> — Grokking (2022) 训练中的相变</li>
+  <li><strong>Izmailov et al.</strong> — SWA (2018) 权重平均免费提点</li>
+  <li><strong>Yang & Hu</strong> — μP / Maximal Update (2021) 超参数迁移</li>
+</ol>
+
+<p>所有 PDF 见 GitHub: <a href="https://github.com/ruanchenbin3/training-dynamics">ruanchenbin3/training-dynamics</a></p>
+
+<hr style="margin-top:40px;border:none;border-top:1px solid #d0d7de;">
+<p style="font-size:12px;color:#888;text-align:center;">
+论文: Li, H. et al. <em>Visualizing the Loss Landscape of Neural Nets</em>. NIPS 2018. 
+<a href="https://arxiv.org/abs/1712.09913">arXiv:1712.09913</a>
+</p>
+
+<script>
+  renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$', right: '$', display: false}
+    ]
+  });
+</script>
+</body>
+</html>
