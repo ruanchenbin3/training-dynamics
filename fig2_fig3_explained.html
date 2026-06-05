@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Li et al. 2018 — Figure 2 & 3 解读</title>
+<style>
+  body { font-family: 'Segoe UI', 'Noto Sans SC', sans-serif; max-width: 960px; margin: 0 auto; padding: 30px 24px; background: #fafafa; color: #222; line-height: 1.8; font-size: 15px; }
+  h1 { font-size: 24px; border-bottom: 2px solid #2d6da8; padding-bottom: 8px; color: #1a365d; }
+  h2 { font-size: 20px; color: #2d6da8; margin-top: 32px; border-left: 4px solid #2d6da8; padding-left: 12px; }
+  .fig-box { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 16px; margin: 16px 0; text-align: center; }
+  .fig-box img { max-width: 100%; border-radius: 6px; }
+  .fig-box .caption { font-size: 13px; color: #666; margin-top: 8px; }
+  .fig-box .label { font-size: 16px; font-weight: bold; color: #2d6da8; }
+  .annotation { background: #ebf5ff; border-left: 4px solid #2d6da8; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 14px; }
+  .annotation.warn { background: #fff8e6; border-left-color: #e6a700; }
+  .compare-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .compare-table td, .compare-table th { border: 1px solid #d0d7de; padding: 8px 12px; text-align: center; font-size: 14px; }
+  .compare-table th { background: #f0f4f8; }
+  code { background: #e8eef5; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  .callout { border: 2px solid #d73a49; border-radius: 8px; padding: 12px 16px; margin: 12px 0; background: #fff0f0; }
+  .callout.solved { border-color: #28a745; background: #f0faf0; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #c9d1d9; }
+    .fig-box { background: #161b22; border-color: #30363d; }
+    .annotation { background: #0d1a2b; }
+    .annotation.warn { background: #1d1a0d; }
+    code { background: #1f2937; }
+    .compare-table th { background: #161b22; }
+    .compare-table td, .compare-table th { border-color: #30363d; }
+    .callout { background: #2d0d12; }
+    .callout.solved { background: #0d1d0d; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Figure 2 & 3 解读</h1>
+<p style="color:#888;">Li et al., Visualizing the Loss Landscape of Neural Nets, NIPS 2018</p>
+
+<!-- ============================= -->
+<h2>Figure 2 — 不归一化会怎样</h2>
+
+<div class="fig-box">
+  <img src="page5_figure.jpg" alt="Figure 2" style="max-width:100%;">
+  <div class="caption"><strong>Figure 2:</strong> VGG-9 的 1D 线性插值，<strong>没有 filter normalization</strong></div>
+</div>
+
+<h3>子图说明</h3>
+
+<table class="compare-table">
+  <tr><th>子图</th><th>内容</th><th>关键信息</th></tr>
+  <tr>
+    <td><strong>(a)</strong></td>
+    <td>WD=0 时，从 θ<sub>s</sub>(x=0) 到 θ<sub>l</sub>(x=1) 的 1D 插值<br>
+        蓝线 = loss，绿线 = 测试精度</td>
+    <td>小 batch(7.37%) 看起来比大 batch(11.07%) <strong>更 sharp</strong><br>
+        ← 违反常识！小 batch 应该更 flat</td>
+  </tr>
+  <tr>
+    <td><strong>(b)</strong></td>
+    <td>训练过程中 ||θ|| 的变化</td>
+    <td>大 batch 的权重范数 <strong>远大于</strong> 小 batch<br>
+        → 两者不在同一尺度上</td>
+  </tr>
+  <tr>
+    <td><strong>(c)</strong></td>
+    <td>权重值分布直方图</td>
+    <td>大 batch 权重分布在 ±100，小 batch 在 ±0.02<br>
+        <strong>差 5000 倍！</strong></td>
+  </tr>
+  <tr>
+    <td><strong>(d)</strong></td>
+    <td>有 weight decay (5e-4) 的 1D 插值</td>
+    <td>小 batch(6.00%) 看起来比大 batch(10.19%) <strong>更 sharp</strong><br>
+        ← 和 (a) 一样的假象</td>
+  </tr>
+  <tr>
+    <td><strong>(e)</strong></td>
+    <td>有 weight decay 时 ||θ|| 的变化</td>
+    <td>权重范数差距缩小了，但仍然不同</td>
+  </tr>
+  <tr>
+    <td><strong>(f)</strong></td>
+    <td>有 weight decay 的权重分布</td>
+    <td>差距缩小，但仍不在同一量级</td>
+  </tr>
+</table>
+
+<div class="callout">
+<strong>❌ 关键问题：</strong>
+Figure 2 的 1D 插值图 <strong>没有做任何归一化</strong>。
+大 batch 的权重比小 batch 大 5000 倍，同一个随机扰动对大 batch 来说微乎其微，对小 batch 却是毁灭性打击。
+结果：小 batch 看起来 sharp（假象），大 batch 看起来 flat（假象）。
+<strong>和真实情况完全相反。</strong>
+</div>
+
+<div class="annotation warn">
+<strong>为什么大 batch 权重这么大？</strong>
+没有 weight decay 时，大 batch 的梯度噪声小，每次更新方向一致，<strong>权重持续增长</strong>（类似随机游走的漂移）。
+小 batch 的梯度噪声大，方向来回摆动，权重被约束在较小范围。
+</div>
+
+<!-- ============================= -->
+<h2>Figure 3 — 归一化之后</h2>
+
+<div class="fig-box">
+  <img src="page6_figure.jpg" alt="Figure 3" style="max-width:100%;">
+  <div class="caption"><strong>Figure 3:</strong> 用 filter normalization 之后的 1D + 2D 可视化</div>
+</div>
+
+<h3>子图说明</h3>
+
+<table class="compare-table">
+  <tr><th>子图</th><th>条件</th><th>测试误差</th><th>损失面形状</th></tr>
+  <tr>
+    <td><strong>(a)</strong></td>
+    <td>WD=0, bs=128</td>
+    <td><strong>7.37%</strong></td>
+    <td><span style="color:#28a745;">flat</span>（谷底宽）</td>
+  </tr>
+  <tr>
+    <td><strong>(b)</strong></td>
+    <td>WD=0, bs=8192</td>
+    <td><strong>11.07%</strong></td>
+    <td><span style="color:#d73a49;">sharp</span>（谷底窄）</td>
+  </tr>
+  <tr>
+    <td><strong>(c)</strong></td>
+    <td>WD=5e-4, bs=128</td>
+    <td><strong>6.00%</strong></td>
+    <td><span style="color:#28a745;">flat</span>（最宽，泛化最好）</td>
+  </tr>
+  <tr>
+    <td><strong>(d)</strong></td>
+    <td>WD=5e-4, bs=8192</td>
+    <td><strong>10.19%</strong></td>
+    <td><span style="color:#d73a49;">sharp</span></td>
+  </tr>
+</table>
+
+<div class="callout solved">
+<strong>✅ 归一化之后，pattern 正确了：</strong>
+小 batch 找到 <strong>flat</strong> 极小值（泛化好），大 batch 找到 <strong>sharp</strong> 极小值（泛化差）。
+而且加上 weight decay 后，两者差距更明显——flat 的泛化更好（6.00% vs 7.37%）。
+</div>
+
+<h3>怎么看 2D 等高线图</h3>
+
+<p>每张 2D 图是一个 <code>f(α, β) = L(θ* + α·δ + β·η)</code> 的等高线图：</p>
+
+<ul>
+  <li><strong>中心 (0,0)</strong> = 训练得到的参数 θ*</li>
+  <li><strong>δ, η</strong> = 两个经过 filter normalization 的随机方向</li>
+  <li><strong>颜色</strong>：蓝色/冷色 = loss 低，红色/暖色 = loss 高</li>
+  <li><strong>绿线</strong> = 测试精度标记</li>
+</ul>
+
+<p>看 (a) 和 (b) 的对比：</p>
+
+<div class="annotation">
+<strong>(a) bs=128：</strong> 从中心往四周走，loss 缓慢上升（蓝色区域大）→ <strong>flat</strong><br>
+<strong>(b) bs=8192：</strong> 从中心往四周走，loss 急剧上升（蓝色区域小，很快变红）→ <strong>sharp</strong><br><br>
+<strong>(c) bs=128+WD：</strong> 蓝色区域最大，loss 面最平坦 → 泛化最好 (6.00%)<br>
+<strong>(d) bs=8192+WD：</strong> 蓝色区域小，sharp → 泛化差 (10.19%)
+</div>
+
+<!-- ============================= -->
+<h2>Figure 2 → Figure 3 的故事线</h2>
+
+<div style="background:#f0f4f8; border-radius:10px; padding:16px 20px; margin:16px 0;">
+<ol>
+  <li><strong>Figure 2（没归一化）：</strong> 画出来的 loss 图是误导的。小 batch 看起来 sharp，大 batch 看起来 flat——完全反了。原因是大 batch 的权重比小 batch 大 5000 倍。</li>
+  <li><strong>Figure 3（filter normalization）：</strong> 把扰动缩放到和权重同尺度后，正确的图案出现了——小 batch 确实 flat，大 batch 确实 sharp。</li>
+  <li><strong>这就是 filter normalization 的必要性证明。</strong> 没有它，单张图本身有意义（显示沿某方向 loss 变化），但不同图之间<strong>不能比较</strong> sharpness。</li>
+</ol>
+</div>
+
+</body>
+</html>
