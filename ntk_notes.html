@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Neural Tangent Kernel — Jacot et al. 2018 解读</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+  body { font-family: 'Segoe UI', 'Noto Sans SC', sans-serif; max-width: 960px; margin: 0 auto; padding: 30px 24px; background: #fafafa; color: #222; line-height: 1.8; font-size: 15px; }
+  h1 { font-size: 26px; border-bottom: 2px solid #2c3e50; padding-bottom: 8px; color: #1a252f; }
+  h2 { font-size: 20px; color: #2c3e50; margin-top: 36px; border-left: 4px solid #2c3e50; padding-left: 12px; }
+  h3 { font-size: 17px; color: #444; margin-top: 28px; }
+  .fig-box { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 16px; margin: 16px 0; text-align: center; }
+  .fig-box img { max-width: 100%; border-radius: 6px; }
+  .fig-box .caption { font-size: 13px; color: #666; margin-top: 8px; }
+  .equation { background: #f0f4f8; padding: 14px 20px; border-radius: 8px; margin: 16px 0; overflow-x: auto; text-align: center; }
+  code { background: #e8eef5; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: #1e2a3a; color: #e6e6e6; display: block; padding: 14px 18px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  .callout { border: 2px solid #2c3e50; border-radius: 8px; padding: 14px 18px; margin: 16px 0; background: #f0f2f5; }
+  .callout.blue { border-color: #2980b9; background: #ebf5ff; }
+  .callout.green { border-color: #27ae60; background: #f0faf0; }
+  .callout.orange { border-color: #e67e22; background: #fef5e7; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  td, th { border: 1px solid #d0d7de; padding: 8px 12px; text-align: center; font-size: 14px; }
+  th { background: #f0f4f8; }
+  .toc { background: #f7f9fc; padding: 16px 20px; border-radius: 10px; margin: 20px 0; }
+  .toc ul { margin: 6px 0; padding-left: 20px; }
+  .toc li { margin: 4px 0; }
+  .toc a { color: #2c3e50; }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  .qa-block { background: #f7f9fc; border-radius: 10px; padding: 16px 20px; margin: 16px 0; }
+  .qa-q { font-weight: bold; color: #2c3e50; }
+  .key-point { background: #2c3e50; color: #fff; padding: 8px 14px; border-radius: 6px; margin: 12px 0; font-size: 14px; text-align: center; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #c9d1d9; }
+    .fig-box { background: #161b22; border-color: #30363d; }
+    .equation { background: #161b22; }
+    .callout { background: #161b22; }
+    .callout.blue { background: #0d1a2b; }
+    code { background: #1f2937; }
+    th { background: #161b22; }
+    td, th { border-color: #30363d; }
+    .toc { background: #161b22; }
+    .qa-block { background: #161b22; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Neural Tangent Kernel (NTK)</h1>
+<p style="color:#888;font-size:14px;">Arthur Jacot, Franck Gabriel, Clément Hongler · NeurIPS 2018</p>
+
+<div class="toc">
+<strong>目录</strong>
+<ul>
+  <li><a href="#sec1">1. 这篇论文在问什么</a></li>
+  <li><a href="#sec2">2. 核心直觉</a></li>
+  <li><a href="#sec3">3. NTK 的定义</a></li>
+  <li><a href="#sec4">4. 两个关键定理</a></li>
+  <li><a href="#sec5">5. 训练动力学：特征学习 vs 核回归</a></li>
+  <li><a href="#sec6">6. 实验验证</a></li>
+  <li><a href="#sec7">7. 和前三篇的联系</a></li>
+  <li><a href="#qa">8. Q&A</a></li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec1">1. 这篇论文在问什么</h2>
+
+<p>
+前面三篇论文研究了<strong>有限宽度</strong>神经网络的训练动力学。
+NTK 这篇从一个极端出发：<strong>如果网络无限宽，会发生什么？</strong>
+</p>
+
+<div class="callout">
+<strong>核心发现：</strong> 当网络宽度 → ∞ 时，
+神经网络等价于一个<strong>固定的核方法（kernel method）</strong>。
+训练过程中，网络函数沿 NTK 的核梯度下降——这个核<strong>在训练中保持不变</strong>。
+</div>
+
+<p>
+这个结果乍看很抽象，但它的意义是提供了一个<strong>理论基准</strong>：
+</p>
+
+<ul>
+  <li>如果你的网络宽度<strong>很大</strong> → 行为接近 NTK → 在"做核回归"，没学特征</li>
+  <li>如果你的网络宽度<strong>有限</strong>（实际都是）→ 偏离 NTK → 真正在学特征</li>
+</ul>
+
+<div class="key-point">NTK 提供了一个"零号参考系"：<br>实际网络的行为，就是在这个参考系上的偏离。</div>
+
+<!-- ============================================================ -->
+<h2 id="sec2">2. 核心直觉</h2>
+
+<h3>一个思想实验</h3>
+
+<p>
+假设你的网络有 $n$ 层，每层 $w$ 个神经元。
+</p>
+
+```python
+# w = 10（窄网络）：
+#   参数少，每个神经元重要
+#   训练中参数变化大 → 网络函数的形状会大变
+#   → 学新特征 ✓
+
+# w = 10⁶（极宽网络）：
+#   参数极多，每个神经元只贡献微小一部分
+#   训练中每个参数几乎不动
+#   → 网络函数的形状几乎不变
+#   → 就像在用一组固定的基函数拟合数据
+```
+
+<p>
+当 $w \to \infty$ 时，每个参数的变化量 → 0，
+但参数的数量 → ∞，<strong>两者乘积趋于有限值</strong>。
+最终效果等价于一个<strong>线性模型</strong>：$f(x) = f_0(x) + \Theta(x, \text{数据}) \cdot \text{某种梯度}$。
+</p>
+
+<h3>从这个直觉出发</h3>
+
+<p>
+关键转变：NTK 把神经网络训练的分析，从<strong>参数空间</strong>（百万维参数怎么走）
+转移到<strong>函数空间</strong>（网络输出函数如何演化）。</p>
+
+<p>在函数空间中，损失是<strong>凸的</strong>（MSE 损失），问题变得简单。</p>
+
+<div class="callout blue">
+<strong>一句话：</strong> 无限宽网络在训练中，参数在变但网络函数的行为
+等价于一个固定核的线性模型——就像<strong>神经网络在模仿一个核方法</strong>。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec3">3. NTK 的定义</h2>
+
+<h3>回想 Edge of Stability 里的基础</h3>
+
+<p>
+梯度下降：$\theta_{t+1} = \theta_t - \eta \nabla_\theta \mathcal{L}(\theta_t)$
+</p>
+
+<p>
+网络函数：$f_\theta(x)$，是把参数 $\theta$ 映射到输出函数的函数（称为 <strong>realization function</strong>）。
+</p>
+
+<h3>NTK 的公式</h3>
+
+<div class="equation">
+$$ \Theta(x, x') = \nabla_\theta f_\theta(x) \cdot \nabla_\theta f_\theta(x') $$
+</div>
+
+<p>
+逐词拆解：
+</p>
+
+<table>
+  <tr><th>符号</th><th>含义</th></tr>
+  <tr><td>$x, x'$</td><td>两个输入样本（比如两张图）</td></tr>
+  <tr><td>$f_\theta(x)$</td><td>网络对 $x$ 的输出（标量或向量）</td></tr>
+  <tr><td>$\nabla_\theta f_\theta(x)$</td><td>输出对<strong>每个参数</strong>的偏导数向量（和参数一样长，百万维）</td></tr>
+  <tr><td>$\cdot$</td><td>向量点积</td></tr>
+  <tr><td>$\Theta(x, x')$</td><td>一个<strong>标量</strong>，衡量两个输入的"NTK 相似度"</td></tr>
+</table>
+
+<h3>一个具体的理解方式</h3>
+
+<p>如果你改变参数 $\theta$ 一点点，输出 $f_\theta(x)$ 会变化多少？</p>
+
+<div class="equation">
+$$ \frac{\partial f_\theta(x)}{\partial \theta_p} \quad\text{每个参数对输出的"灵敏度"} $$
+</div>
+
+<p>
+NTK 就是两个样本之间<strong>灵敏度模式的相关性</strong>：
+</p>
+
+<ul>
+  <li>如果 $\Theta(x, x')$ 很大 → 改变参数对 $x$ 和 $x'$ 的影响<strong>高度相关</strong></li>
+  <li>如果 $\Theta(x, x')$ 很小 → 改变参数对 $x$ 和 $x'$ 的影响<strong>不相关</strong></li>
+</ul>
+
+<h3>NTK 如何决定训练动力学</h3>
+
+<p>
+在 MSE 损失下，网络函数的演化由 NTK 完全决定：
+</p>
+
+<div class="equation">
+$$ \partial_t f_t(x) = -\sum_{i=1}^N \Theta(x, x_i) \cdot (f_t(x_i) - y_i) $$
+</div>
+
+<p>其中 $(f_t(x_i) - y_i)$ 是当前预测误差，$\Theta(x, x_i)$ 决定样本 $x_i$ 的误差如何"传播"到 $x$ 的预测。</p>
+
+<!-- ============================================================ -->
+<h2 id="sec4">4. 两个关键定理</h2>
+
+<h3>定理 1：无限宽时 NTK 收敛到确定值</h3>
+
+<div class="callout blue">
+<strong>Theorem 1:</strong> 当隐藏层宽度 $n_1, ..., n_{L-1} \to \infty$，
+NTK $\Theta^{(L)}$ 在初始化时趋近于一个<strong>确定的极限核</strong> $\Theta^{(L)}_\infty$。
+</div>
+
+<p>
+这个极限核可以递归计算（假设激活函数 $\sigma$）：
+</p>
+
+<div class="equation">
+$$ \Theta^{(1)}(x, x') = \Sigma^{(1)}(x, x') + \beta^2 $$
+$$ \Theta^{(L+1)}(x, x') = \Theta^{(L)}(x, x') \cdot \dot{\Sigma}^{(L+1)}(x, x') + \Sigma^{(L+1)}(x, x') + \beta^2 $$
+</div>
+
+<p>其中：</p>
+<ul>
+  <li>$\Sigma^{(L)}$ 是第 $L$ 层的 NNGP 核（高斯过程核）</li>
+  <li>$\dot{\Sigma}^{(L)}$ 是激活函数导数的期望</li>
+  <li>$\beta$ 是偏置强度参数</li>
+</ul>
+
+<div class="callout orange">
+<strong>实际含义：</strong> 给定激活函数（比如 ReLU）和深度，NTK 是<strong>可以算出来的</strong>，不需要训练。
+你用这个核去做核回归，得到的结果就是无限宽网络的训练结果。
+</div>
+
+<h3>定理 2：无限宽时 NTK 在训练中不变</h3>
+
+<div class="callout blue">
+<strong>Theorem 2:</strong> 在无限宽极限下，NTK <strong>在整个训练过程中保持不变</strong>。
+</div>
+
+<p>
+证明的核心思想：任何单个参数的变化量是 $O(1/\sqrt{\text{width}})$，
+而 $\nabla_\theta f_\theta$ 也是 $O(1/\sqrt{\text{width}})$ 量级。
+两者相乘，NTK 的变化是 $O(1/\text{width})$ → 宽度 → ∞ 时变化 → 0。
+</p>
+
+<div class="callout green">
+<strong>这为什么重要：</strong> 因为 NTK 固定了，整个训练过程变成了一个<strong>线性动力学系统</strong>。
+网络函数的演化可以用 kernel ridge regression 精确描述：
+</div>
+
+<div class="equation">
+$$ f_t(x) = f_0(x) + \Theta_\infty(x, X) \cdot \Theta_\infty(X, X)^{-1} \cdot (I - e^{-\eta \Theta_\infty(X, X) t}) \cdot (Y - f_0(X)) $$
+</div>
+
+<p>这个公式是<strong>精确的</strong>（在无限宽极限下）。它告诉你每一步 $f_t(x)$ 长什么样。</p>
+
+<p>特别地，当 $t \to \infty$：</p>
+
+<div class="equation">
+$$ f_\infty(x) = f_0(x) + \Theta_\infty(x, X) \cdot \Theta_\infty(X, X)^{-1} \cdot (Y - f_0(X)) $$
+</div>
+
+<p>
+这正是<strong>核回归（kernel regression）</strong>的解！
+初始输出 $f_0(x)$ 是高斯过程，被核回归"更新"到数据。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="sec5">5. 训练动力学：特征学习 vs 核回归</h2>
+
+<h3>无限宽极限 = "Lazy Training"（懒惰训练）</h3>
+
+<p>Chizat et al. (2019) 后续提出的概念：</p>
+
+<div class="equation">
+$$ \text{参数变化量} \times \text{参数数量} = O(1) \quad\text{（宽度 → ∞）} $$
+</div>
+
+<p>
+每个参数移动 <strong>非常小</strong>，但因为参数 <strong>非常多</strong>，整体还能拟合数据。
+这种 regime 被称为 <strong>lazy training</strong>——网络在用初始特征做核回归，没学新特征。
+</p>
+
+<h3>有限宽网络 ≠ 核回归</h3>
+
+<p>你的 U-Net 宽度可能只有 64 或 128——远非无限宽。这时：</p>
+
+<table>
+  <tr><th></th><th>无限宽 (NTK regime)</th><th>有限宽 (实际网络)</th></tr>
+  <tr><td>特征学习</td><td>❌ 不学新特征（用初始特征拟合）</td><td>✅ 学到新特征（表示学习）</td></tr>
+  <tr><td>NTK 是否变化</td><td>不变（恒定核）</td><td>变化（特征在演化）</td></tr>
+  <tr><td>需要数据量</td><td>大（没有特征学习就需要更多数据）</td><td>相对少</td></tr>
+  <tr><td>对 T1 mapping</td><td>不适合（数据少，需要学新特征）</td><td>✅ 你的场景</td></tr>
+</table>
+
+<h3>如何判断你的网络在哪个 regime</h3>
+
+<p>训练时观察 NTK 的变化率：</p>
+
+<pre style="background:#1e2a3a;color:#e6e6e6;padding:14px 18px;border-radius:8px;font-size:13px;">
+# 方法：训练前后各算一次 NTK
+# 如果 ||NTK_init - NTK_final|| / ||NTK_init|| < 0.1
+# → 接近 lazy training（网络太宽或训练强度不够）
+
+# 如果这个比值很大（> 0.5）
+# → 特征在学习，网络正在改变它的表示
+</pre>
+
+<!-- ============================================================ -->
+<h2 id="sec6">6. 实验验证</h2>
+
+<div class="fig-box">
+  <img src="ntk_fig_p8.jpg" alt="Figure 1" style="max-width:100%;">
+  <div class="caption"><strong>Figure 1:</strong> 不同宽度下 NTK 的收敛。左：初始化时；右：200 步训练后。<br>
+  蓝色 = 宽网络（n=10000），橙色 = 窄网络（n=500）。宽网络的 NTK 方差小且训练后几乎没有变化。</div>
+</div>
+
+<p>
+关键观察：
+</p>
+
+<ul>
+  <li><strong>宽网络（n=10000）：</strong> NTK 在初始化时已经接近极限，训练 <strong>几乎不变</strong> → NTK regime 成立</li>
+  <li><strong>窄网络（n=500）：</strong> NTK 方差大，训练后明显"膨胀" → 偏离 NTK regime，特征在学</li>
+</ul>
+
+<div class="fig-box">
+  <img src="ntk_fig_p9.jpg" alt="Figure 2" style="max-width:100%;">
+  <div class="caption"><strong>Figure 2:</strong> 不同宽度下网络函数 $f_\theta$ 的分布。<br>
+  浅色带 = 10/50/90 百分位。宽网络的分布更集中，与高斯过程预测一致。</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec7">7. 和前三篇的联系</h2>
+
+<table>
+  <tr><th></th><th>Loss Landscape</th><th>Edge of Stability</th><th>Grokking</th><th>NTK</th></tr>
+  <tr>
+    <td><strong>视角</strong></td>
+    <td>静态几何</td>
+    <td>动态演化</td>
+    <td>记忆→泛化相变</td>
+    <td><strong>宽网络的理论极限</strong></td>
+  </tr>
+  <tr>
+    <td><strong>关键</strong></td>
+    <td>filter normalization</td>
+    <td>$2/\eta$, EoS</td>
+    <td>weight decay + 相变</td>
+    <td><strong>恒定的 NTK</strong></td>
+  </tr>
+  <tr>
+    <td><strong>对你的意义</strong></td>
+    <td>保留跳过连接</td>
+    <td>学习率调度依据</td>
+    <td>数据少时 weight decay</td>
+    <td><strong>判断网络在"学特征"还是"核回归"</strong></td>
+  </tr>
+</table>
+
+<div class="callout green">
+<strong>三部曲的内在逻辑（补充）：</strong><br>
+1. 无限宽极限下网络 = 核方法（NTK）<br>
+2. 有限宽实际网络偏离 NTK — <strong>这个偏离就是"学习特征"</strong><br>
+3. Li et al. 和 Cohen et al. 研究的就是有限宽网络中发生的现象<br>
+4. NTK 提供了"如果不学特征会怎样"的<strong>基准线</strong>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="qa">8. Q&A</h2>
+
+<div class="qa-block">
+<p class="qa-q">Q1: NTK 和之前的核方法（RBF、多项式核）有什么不同？</p>
+<p>
+NTK 是一种<strong>由网络结构定义的核</strong>。它和 RBF 核不同——RBF 核是通用的、和任务无关；NTK 核由网络深度、激活函数、初始化方式决定。不同的网络架构产生不同的 NTK。
+</p>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q2: 那是不是说"无限宽网络没用"？</p>
+<p>
+不是没用，而是<strong>用途不同</strong>。无限宽网络作为理论工具，可以精确分析：
+</p>
+<ul>
+  <li>训练是否会收敛到全局最优 → 是（定理保证）</li>
+  <li>泛化误差如何随数据量变化 → 可以用 kernel theory 分析</li>
+  <li>不同架构的"表达能力" → 通过 NTK 的特征谱比较</li>
+</ul>
+<p>
+但<strong>实际最好的网络不是无限宽的</strong>——有限宽才能学特征。NTK 是理论的零号参考系。
+</p>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q3: 这对我的 T1 mapping U-Net 有什么直接指导？</p>
+<p>
+两点：
+</p>
+<ol>
+  <li><strong>不要让你的 U-Net 太宽</strong>——宽度几百就够了，太宽会接近 lazy training，学不到 T1 mapping 需要的领域特征</li>
+  <li><strong>NTK 帮你诊断：</strong> 训练前后算一下 NTK 的变化，如果变化< 10%，说明你的网络在大材小用（在核回归而不是学特征），可以考虑<strong>减宽加深</strong></li>
+</ol>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q4: NTK 和 Edge of Stability 有什么关系？</p>
+<p>
+深层联系：无限宽极限下，NTK 恒定 → loss 是凸的 → 不会有 EoS 现象（因为凸函数的 Hessian 恒定，$\lambda_{\max}$ 不会上升）。
+</p>
+<p>
+EoS 和 Progressive Sharpening 是<strong>有限宽网络特有的现象</strong>——参数移动足够大，改变了损失面的曲率，才会出现。
+</p>
+<p>
+这反过来说明：如果你的网络出现了 EoS，说明它<strong>远离 NTK regime</strong>，在真正学特征。
+</p>
+</div>
+
+<hr style="margin-top:40px;">
+<p class="ref">PDF: <code>papers/Jacot_NeuralTangentKernel_2018_1806.07572.pdf</code></p>
+
+<script>
+  renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$', right: '$', display: false}
+    ]
+  });
+</script>
+
+</body>
+</html>
