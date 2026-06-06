@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Grokking — Power et al. 2022 解读</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+  body { font-family: 'Segoe UI', 'Noto Sans SC', sans-serif; max-width: 960px; margin: 0 auto; padding: 30px 24px; background: #fafafa; color: #222; line-height: 1.8; font-size: 15px; }
+  h1 { font-size: 26px; border-bottom: 2px solid #8e44ad; padding-bottom: 8px; color: #5b2c7a; }
+  h2 { font-size: 20px; color: #8e44ad; margin-top: 36px; border-left: 4px solid #8e44ad; padding-left: 12px; }
+  h3 { font-size: 17px; color: #444; margin-top: 28px; }
+  .fig-box { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 16px; margin: 16px 0; text-align: center; }
+  .fig-box img { max-width: 100%; border-radius: 6px; }
+  .fig-box .caption { font-size: 13px; color: #666; margin-top: 8px; }
+  .equation { background: #f0f4f8; padding: 14px 20px; border-radius: 8px; margin: 16px 0; overflow-x: auto; text-align: center; }
+  code { background: #e8eef5; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: #1e2a3a; color: #e6e6e6; display: block; padding: 14px 18px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  .callout { border: 2px solid #8e44ad; border-radius: 8px; padding: 14px 18px; margin: 16px 0; background: #f5f0ff; }
+  .callout.blue { border-color: #2d6da8; background: #ebf5ff; }
+  .callout.green { border-color: #28a745; background: #f0faf0; }
+  .callout.orange { border-color: #e67e22; background: #fef5e7; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  td, th { border: 1px solid #d0d7de; padding: 8px 12px; text-align: center; font-size: 14px; }
+  th { background: #f0f4f8; }
+  .toc { background: #f7f9fc; padding: 16px 20px; border-radius: 10px; margin: 20px 0; }
+  .toc ul { margin: 6px 0; padding-left: 20px; }
+  .toc li { margin: 4px 0; }
+  .toc a { color: #8e44ad; }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  .qa-block { background: #f7f9fc; border-radius: 10px; padding: 16px 20px; margin: 16px 0; }
+  .qa-q { font-weight: bold; color: #8e44ad; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #c9d1d9; }
+    .fig-box { background: #161b22; border-color: #30363d; }
+    .equation { background: #161b22; }
+    .callout { background: #1d1228; }
+    .callout.blue { background: #0d1a2b; border-color: #58a6ff; }
+    .callout.green { background: #0d1d0d; }
+    code { background: #1f2937; }
+    th { background: #161b22; }
+    td, th { border-color: #30363d; }
+    .toc { background: #161b22; }
+    .qa-block { background: #161b22; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Grokking: Generalization Beyond Overfitting</h1>
+<p style="color:#888;font-size:14px;">Alethea Power, Yuri Burda, Harri Edwards, Igor Babuschkin · 2022</p>
+
+<div class="toc">
+<strong>目录</strong>
+<ul>
+  <li><a href="#sec1">1. 论文要回答什么问题</a></li>
+  <li><a href="#sec2">2. 实验设置</a></li>
+  <li><a href="#sec3">3. 核心现象：Grokking</a></li>
+  <li><a href="#sec4">4. 什么因素影响 Grokking</a></li>
+  <li><a href="#sec5">5. 数据效率</a></li>
+  <li><a href="#sec6">6. 和前面两篇的联系</a></li>
+  <li><a href="#qa">7. Q&A 记录</a></li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec1">1. 论文要回答什么问题</h2>
+
+<p>
+前两篇论文（Li et al. 和 Cohen et al.）研究了<strong>标准视觉任务</strong>上损失面的几何和优化动力学。
+这篇问了一个完全不同的问题：
+</p>
+
+<div class="callout">
+<strong>核心问题：</strong> 神经网络<strong>先记忆再泛化</strong>——训练精度早就 100% 了（过拟合），
+但验证精度在机会水平上停留很久后，<strong>突然跳升到 100%</strong>，这是怎么发生的？
+</div>
+
+<p>
+这个现象叫 <strong>Grokking</strong>（来自《异乡异客》中的火星语，意为"彻底理解"）。
+</p>
+
+<!-- ============================================================ -->
+<h2 id="sec2">2. 实验设置</h2>
+
+<h3>为什么用算法数据集</h3>
+<p>
+标准数据集（ImageNet、CIFAR）上过拟合和泛化的边界很模糊——验证精度是逐渐上升的。
+Grokking 需要一个<strong>可以严格区分"记忆"和"泛化"</strong>的任务。
+</p>
+
+<h3>具体的任务</h3>
+<p>
+二元运算表：$a \circ b = c$，其中 a, b, c 是<strong>无内部结构的离散符号</strong>。
+</p>
+
+<div class="fig-box">
+  <img src="grok_fig_p5.jpg" alt="Figure 5" style="max-width:80%;">
+  <div class="caption"><strong>Figure 5:</strong> 一个完整的二元运算表。网络看到一部分条目，需要推断出剩余条目。</div>
+</div>
+
+<p>
+例子：
+</p>
+
+<pre style="background:#1e2a3a;color:#e6e6e6;padding:14px 18px;border-radius:8px;font-size:13px;">
+模加法（modular addition）：
+  x ∘ y = x + y (mod 97)
+  训练集：随机选 30% 的 (x, y) 对
+  验证集：剩下 70%
+  
+  网络看到 "3 ∘ 5 = 8"，需要推断 "47 ∘ 23 = 70"
+
+S5 群乘法：
+  x ∘ y = x · y（置换群的复合）
+  5 个元素的置换群有 120 个元素
+  运算表：120 × 120 = 14400 个条目
+</pre>
+
+<div class="callout orange">
+<strong>关键：</strong> 符号没有内部结构（不是数字、不是字母）。
+网络只能从<strong>模式</strong>中学习——比如模加法中，最终必须学到"循环群"的结构。
+这就是为什么它能严格区分"背答案"和"真理解"。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec3">3. 核心现象：Grokking</h2>
+
+<div class="fig-box">
+  <img src="grok_fig_p1.jpg" alt="Figure 1" style="max-width:100%;">
+  <div class="caption"><strong>Figure 1:</strong> Grokking 现象。左：模加法的训练/验证曲线；
+  中：不同数据量下泛化所需的步数（指数增长）；右：运算表示例。</div>
+</div>
+
+<h3>发生了什么</h3>
+
+<pre style="background:#1e2a3a;color:#e6e6e6;padding:14px 18px;border-radius:8px;font-size:13px;">
+阶段 1（~10³ 步）：训练精度 → 100% ✅        ← 记忆
+                 验证精度 → ~50%（机会水平）❌
+
+阶段 2（10³ ~ 10⁶ 步）：训练精度 = 100% （不变）
+                       验证精度 = ~50% （不变）
+                       网络在"死记硬背"
+
+阶段 3（~10⁶ 步）：验证精度 ↗↗↗→ 100%   ← 突变的泛化
+                  训练精度 = 100% （不受影响）
+                  网络"突然懂了"
+</pre>
+
+<div class="callout">
+<strong>定义的精确表述：</strong><br>
+<em>"Long after severely overfitting, validation accuracy sometimes suddenly begins to increase from chance level toward perfect generalization. We call this phenomenon 'grokking'."</em>
+</div>
+
+<h3>这个"突然"有多突然</h3>
+<p>
+以模加法为例：
+</p>
+
+<pre style="background:#1e2a3a;color:#e6e6e6;padding:14px 18px;border-radius:8px;font-size:13px;">
+模加法（97 个元素，运算表 97×97=9409 个条目）：
+  训练集：30% ≈ 2823 个条目
+  验证集：70% ≈ 6586 个条目
+
+  训练到 ~10⁶ 步时：
+    在一个 batch 内，验证精度从 55% 跳到 95%
+    然后几个 batch 内达到 100%
+
+  不是"慢慢学会"，而是"突然懂了"
+</pre>
+
+<div class="fig-box">
+  <img src="grok_fig_p7.jpg" alt="Figure 4" style="max-width:100%;">
+  <div class="caption"><strong>Figure 4:</strong> 模除法的 loss 曲线。验证 loss 在泛化前会先升后降——"double descent"。
+  这和 Figure 1 的精度曲线对应同一现象的不同视角。</div>
+</div>
+
+<h3>Figure 4 的 double descent</h3>
+<p>
+验证 loss 呈现有趣的双重下降模式：
+</p>
+
+<ol>
+  <li><strong>第一阶段：</strong> 训练 loss 下降，验证 loss 也下降（网络学了一些简单模式）</li>
+  <li><strong>第二阶段：</strong> 训练 loss 继续降到 0，验证 loss <strong>回升</strong>（过拟合——死记硬背）</li>
+  <li><strong>第三阶段：</strong> 在某个点，验证 loss <strong>突然下降</strong>到 0（grokking——真理解）</li>
+</ol>
+
+<div class="callout blue">
+<strong>和前面论文的联系：</strong> 这个 double descent 表明网络从一个"记忆的解"（sharp？）
+跳到了一个"泛化的解"（flat？）——和 Li et al. 的 sharp vs flat 是同一个问题的不同视角。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec4">4. 什么因素影响 Grokking</h2>
+
+<h3>最有效的促进因素：Weight Decay</h3>
+
+<div class="fig-box">
+  <img src="grok_fig_p3.jpg" alt="Figure 2" style="max-width:100%;">
+  <div class="caption"><strong>Figure 2 (左):</strong> 不同优化方法在 10⁵ 步预算下的泛化效果（S5 群乘法）。<br>
+  Weight decay 效果最显著，比大部分方法的数据效率高一倍以上。</div>
+</div>
+
+<table>
+  <tr><th>方法</th><th>效果</th><th>说明</th></tr>
+  <tr><td>Weight decay</td><td>⭐⭐⭐ 最好</td><td>向零衰减，促使网络找到更简单的解</td></tr>
+  <tr><td>小 batch + 梯度噪声</td><td>⭐⭐ 好</td><td>噪声帮助跳出 sharp 的记忆解</td></tr>
+  <tr><td>Dropout</td><td>⭐ 中等</td><td>也有正则化效果</td></tr>
+  <tr><td>Full-batch GD</td><td>⭐ 有</td><td>没有噪声仍能 grok，但需要更多数据</td></tr>
+  <tr><td>大学习率</td><td>⚠️ 要调</td><td>需要在较窄范围内才能 grok</td></tr>
+</table>
+
+<div class="callout orange">
+<strong>论文的推测：</strong> Weight decay 向零衰减有效，向初始化衰减也有效但略差。
+说明"零权重是一个好的先验"解释了部分原因，但不是全部。
+噪声有助于找到更 flat 的极小值——和 Li et al. 的 flat 泛化更好一致。
+</div>
+
+<h3>嵌入可视化（Figure 3）</h3>
+
+<div class="fig-box">
+  <img src="grok_fig_p4.jpg" alt="Figure 3" style="max-width:100%;">
+  <div class="caption"><strong>Figure 3:</strong> 输出层权重的 t-SNE 投影。<br>
+  左：S5 群乘法——看到了置换群的对称结构；右：模加法——看到了循环拓扑。</div>
+</div>
+
+<p>
+当网络"grok"之后，嵌入空间清晰地反映了底层数学结构：
+</p>
+
+<ul>
+  <li><strong>模加法 → 循环群结构</strong>：t-SNE 图上呈现圆环拓扑</li>
+  <li><strong>S5 群 → 置换群结构</strong>：t-SNE 图上呈现对应的代数组结构</li>
+</ul>
+
+<div class="callout green">
+<strong>启示：</strong> 网络不是"凑巧答对了"，而是真正学到了运算的代数结构。
+嵌入空间的几何就是数学结构的几何。
+</div>
+
+<!-- ============================================================ -->
+<h2 id="sec5">5. 数据效率</h2>
+
+<div class="fig-box">
+  <img src="grok_fig_p1_center.jpg" alt="Figure 1 center" style="max-width:100%;"
+       onerror="this.style.display='none'">
+  <div class="caption"><strong>Figure 1 (中):</strong> 泛化所需步数随数据集大小的变化。</div>
+</div>
+
+<p>
+论文最重要的定量发现之一：
+</p>
+
+<div class="equation">
+  $$ \text{数据量减少 1%} \quad \Rightarrow \quad \text{泛化所需步数增加 40-50%} $$
+</div>
+
+<p>
+在 25-30% 数据附近，这种效应最明显。低于某个阈值，泛化所需步数趋向无穷——网络永远不会 grok。
+</p>
+
+<pre style="background:#1e2a3a;color:#e6e6e6;padding:14px 18px;border-radius:8px;font-size:13px;">
+            泛化所需步数（对数坐标）
+                     ↑
+           10⁷ ─┤    ╲
+                │     ╲
+           10⁶ ─┤      ╲_____  ← 数据量 30% 时，~10⁶ 步
+                │            ╲
+           10⁵ ─┤              ╲_____  ← 40% 时，~10⁴-10⁵ 步
+                │
+           10⁴ ─┤
+                └───────────────────────→ 训练数据比例
+                   20%  25%  30%  35%  40%
+
+    注：横轴是训练数据比例，纵轴是泛化到 99% 所需的中位步数
+    训练精度达到 99% 始终只需 10³-10⁴ 步（不变）
+    → 记忆容易，泛化难
+    → 数据越少，泛化越需要漫长优化
+</pre>
+
+<div class="callout blue">
+<strong>核心结论：</strong> 可以在"数据"和"计算"之间做 trade-off。
+数据越少，需要的计算（优化步数）越多。
+这是一个指数关系——数据少 10%，可能需要 10 倍的计算量。
+</div>
+
+<h2 id="sec6">6. 和前面两篇的联系</h2>
+
+<table>
+  <tr><th></th><th>Li et al. (Loss Landscape)</th><th>Cohen et al. (Edge of Stability)</th><th>Power et al. (Grokking)</th></tr>
+  <tr>
+    <td><strong>研究什么</strong></td>
+    <td>损失面的静态几何</td>
+    <td>GD 在面上的动态演化</td>
+    <td>从记忆到泛化的相变</td>
+  </tr>
+  <tr>
+    <td><strong>关键概念</strong></td>
+    <td>Filter normalization, sharp vs flat</td>
+    <td>Progressive sharpening, EoS, 2/η</td>
+    <td>Grokking, double descent, 数据效率</td>
+  </tr>
+  <tr>
+    <td><strong>解释了什么</strong></td>
+    <td>跳过连接让损失面光滑</td>
+    <td>Sharpness 持续上升到 2/η 后振荡</td>
+    <td>先记忆后泛化的"突然"转变</td>
+  </tr>
+  <tr>
+    <td><strong>对你 T1 mapping 的意义</strong></td>
+    <td>保留跳过连接，加宽比加深安全</td>
+    <td>学习率调度的动力学依据</td>
+    <td>如果数据少，考虑 weight decay + 长时间训练</td>
+  </tr>
+</table>
+
+<div class="callout">
+<strong>三篇的内在逻辑链：</strong><br>
+1. Li et al.: 损失面有 flat 和 sharp 两种极小值，flat 泛化好<br>
+2. Cohen et al.: GD 会推高 sharpness 直到 2/η，在边界上振荡<br>
+3. Power et al.: 但如果有 weight decay 让权重衰减到零，网络会从 sharp（记忆）跳到 flat（泛化）——这就是 grokking
+</div>
+
+<!-- ============================================================ -->
+<h2 id="qa">7. Q&A 记录</h2>
+
+<div class="qa-block">
+<p class="qa-q">Q1: Grokking 和过拟合有什么区别？</p>
+<p>
+过拟合 = 训练好、验证差，然后一直差下去。
+Grokking = 训练好、验证差、训练仍然好、验证<strong>突然好</strong>。
+</p>
+<p>
+过拟合是"记住了答案但不懂规律"，grokking 是"先记住答案，慢慢才懂规律"。
+</p>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q2: 为什么会"突然"泛化？</p>
+<p>
+目前最好的解释（Liu et al., 2022等后续工作）：
+网络同时在学两个解——一个"记忆解"（sharp，权重范数大）和一个"泛化解"（flat，权重范数小）。
+泛化解学得慢但最终占优，因为 weight decay 持续惩罚大权重。
+到达某个临界点后，泛化解突然取代记忆解——这就是相变。
+</p>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q3: 你的 T1 mapping 项目有 grokking 吗？</p>
+<p>
+Grokking 在算法数据集上最明显（因为有无穷验证集可以严格区分记忆和泛化）。
+在医学图像上，记忆和泛化的边界是连续的，不太可能看到这样"突然"的跳跃。
+</p>
+<p>
+但核心思想仍然适用：<strong>如果数据少，weight decay + 长时间优化可能带来突发的泛化提升。</strong>
+你 5 个 contrast → T1 map 的配对数据如果很少，可以试试：
+</p>
+<ul>
+  <li>大幅提高 weight decay（不只是防止过拟合，而是主动寻找更简单的解）</li>
+  <li>训到远远超过训练 loss 收敛的步数</li>
+</ul>
+</div>
+
+<div class="qa-block">
+<p class="qa-q">Q4: Figure 7（附录）中 grokking 和 flatness 的关系？</p>
+<p>
+附录 Figure 7 显示：grok 只发生在相对 flat 的区域。
+这和 Li et al. 一致——flat minima 泛化好。
+但 grokking 的特殊之处在于网络先到 sharp 区域（记忆），然后才跳到 flat 区域（泛化）。
+</p>
+</div>
+
+<hr style="margin-top:40px;">
+<p class="ref">PDF: <code>papers/Power_Grokking_2022_2201.02177.pdf</code></p>
+
+<script>
+  renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$', right: '$', display: false}
+    ]
+  });
+</script>
+
+</body>
+</html>
